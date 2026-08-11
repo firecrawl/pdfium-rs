@@ -25,6 +25,36 @@ crates.io Trusted Publishing **cannot create a new crate** — the first-ever
 publish must use a classic API token. This is done once, by a maintainer,
 locally; afterwards no long-lived credential exists anywhere.
 
+Two variants; **A (placeholder) is what this repository used.** It keeps the
+token entirely away from the real release: the token only ever publishes an
+empty 0.0.0 name reservation, and 0.1.0 itself goes out through the gated
+OIDC workflow like every future release.
+
+### Variant A: 0.0.0 placeholder, then OIDC for the real release
+
+1. Create a scoped token on <https://crates.io/settings/tokens>: *New
+   Token* -> scope **`publish-new`** only, crate pattern `firecrawl-pdfium`,
+   shortest available expiry.
+2. Publish a minimal placeholder (name, `version = "0.0.0"`, description
+   marking it a placeholder, `repository` pointing here, an empty lib.rs and
+   a README saying "do not depend on 0.0.0"). Keep the token out of shell
+   history and off disk:
+
+   ```sh
+   read -s CARGO_REGISTRY_TOKEN && export CARGO_REGISTRY_TOKEN
+   cargo publish        # from the placeholder directory
+   unset CARGO_REGISTRY_TOKEN
+   ```
+
+3. Configure Trusted Publishing (step 3 below), then **revoke the token**
+   (step 4 below).
+4. Cut the real release through the normal path (section 3): tag `v0.1.0`,
+   approve the environment gate; the workflow publishes 0.1.0 via OIDC.
+5. After 0.1.0 is live, **yank 0.0.0** from the crate's Versions page on
+   crates.io (owners have a yank button) so nobody resolves the placeholder.
+
+### Variant B: publish 0.1.0 directly with the token
+
 1. **Create a scoped token.** On <https://crates.io/settings/tokens>:
    *New Token* → scope **`publish-new`** only, crate pattern
    `firecrawl-pdfium`, shortest available expiry. Do not store it in any
