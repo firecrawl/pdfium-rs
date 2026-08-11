@@ -1,0 +1,29 @@
+{
+  "comment": "Pinned upstream PDFium binaries. Update with: cargo xtask pin <chromium/NNNN>. Checksums are recorded at pin time because upstream publishes none; every download is verified against them.",
+  "upstream": "bblanchon/pdfium-binaries",
+  "release": "chromium/7988",
+  "pdfium_version": "153.0.7988.0",
+  "base_url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7988",
+  "platforms": {
+    "mac-arm64": {
+      "asset": "pdfium-mac-arm64.tgz",
+      "sha256": "2229b8a6ffa0fb1634aa78886ed5425a10a8a0bd01762f7f0c9244081d86a921"
+    },
+    "mac-x64": {
+      "asset": "pdfium-mac-x64.tgz",
+      "sha256": "172d9b7b0fa805235c785be333c046ff95c4aa38b3538ddc2d9d21ecc99681ca"
+    },
+    "linux-x64": {
+      "asset": "pdfium-linux-x64.tgz",
+      "sha256": "7358c15e26a746cd67854887ea11b3b807c436056788eee9294fb972b8f8e0be"
+    },
+    "linux-arm64": {
+      "asset": "pdfium-linux-arm64.tgz",
+      "sha256": "a2926203456881efa8feca7e0e409de78a4471b9b72e62a74c820faebb3e4551"
+    },
+    "win-x64": {
+      "asset": "pdfium-win-x64.tgz",
+      "sha256": "654daf488d9357d2787cec439d0dbdb93d7e180e2cb28e5f1d41c66d2645daec"
+    }
+  }
+}

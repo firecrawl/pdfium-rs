@@ -1,0 +1,17 @@
+# Build output (includes target/pdfium/, where `cargo xtask fetch-pdfium`
+# places the downloaded native library).
+/target
+fuzz/target
+fuzz/corpus
+fuzz/artifacts
+
+# Editor / OS noise
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Example render output
+*.ppm
+*.png
+!docs/**/*.png

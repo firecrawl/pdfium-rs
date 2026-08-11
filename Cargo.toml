@@ -1,0 +1,42 @@
+[workspace]
+members = ["xtask"]
+exclude = ["fuzz"]
+resolver = "2"
+
+[package]
+name = "firecrawl-pdfium"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+description = "Safe, self-contained Rust bindings for PDFium: open, inspect, and render PDFs to owned pixel buffers."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/firecrawl/pdfium-rs"
+documentation = "https://docs.rs/firecrawl-pdfium"
+readme = "README.md"
+keywords = ["pdf", "pdfium", "render", "rasterize", "document"]
+categories = ["api-bindings", "rendering", "multimedia::images"]
+exclude = [
+    ".github/",
+    "docs/",
+    "tests/fixtures/",
+    "tools/",
+    "fuzz/",
+]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+libloading = "0.8"
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+png = "0.17"
+
+[[bench]]
+name = "render"
+harness = false
+
+[profile.bench]
+debug = true
