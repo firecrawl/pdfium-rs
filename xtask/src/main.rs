@@ -97,7 +97,18 @@ fn pin(root: &Path, args: &[String]) -> Result<(), String> {
         let archive = work.join(&old_pin.asset);
         eprintln!("downloading {url}");
         let status = Command::new("curl")
-            .args(["-fsSL", "--retry", "3", "--retry-delay", "2", "-o"])
+            // --retry-all-errors also retries TLS/connection-stage failures,
+            // which plain --retry does not (observed as a transient cert
+            // verification flake on a GitHub macOS runner).
+            .args([
+                "-fsSL",
+                "--retry",
+                "5",
+                "--retry-delay",
+                "2",
+                "--retry-all-errors",
+                "-o",
+            ])
             .arg(&archive)
             .arg(&url)
             .status()
@@ -265,7 +276,18 @@ fn download_verified(root: &Path, lock: &Lock, slug: &str) -> Result<PathBuf, St
         eprintln!("downloading {url}");
         let tmp = archive.with_extension("tgz.partial");
         let status = Command::new("curl")
-            .args(["-fsSL", "--retry", "3", "--retry-delay", "2", "-o"])
+            // --retry-all-errors also retries TLS/connection-stage failures,
+            // which plain --retry does not (observed as a transient cert
+            // verification flake on a GitHub macOS runner).
+            .args([
+                "-fsSL",
+                "--retry",
+                "5",
+                "--retry-delay",
+                "2",
+                "--retry-all-errors",
+                "-o",
+            ])
             .arg(&tmp)
             .arg(&url)
             .status()
