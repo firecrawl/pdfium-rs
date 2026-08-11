@@ -8,10 +8,19 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    ignore:
+      # The `@1.77` ref on dtolnay/rust-toolchain is the MSRV under test,
+      # not an action version — dependabot must not "upgrade" it.
+      - dependency-name: dtolnay/rust-toolchain
   - package-ecosystem: cargo
     directory: "/"
     schedule:
       interval: weekly
+    ignore:
+      # libloading 0.9 raises its MSRV to 1.88; ours is 1.77 (the msrv CI
+      # job also enforces this — see docs/VERSIONING.md before bumping).
+      - dependency-name: libloading
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
   - package-ecosystem: cargo
     directory: "/fuzz"
     schedule:
