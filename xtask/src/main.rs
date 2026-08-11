@@ -465,7 +465,7 @@ fn write_sums_and_sizes(out_dir: &Path) -> Result<(), String> {
         .filter(|p| {
             p.is_file()
                 && p.file_name()
-                    .map_or(true, |n| n != "SHA256SUMS" && n != "ARTIFACT-SIZES.txt")
+                    .is_none_or(|n| n != "SHA256SUMS" && n != "ARTIFACT-SIZES.txt")
         })
         .collect();
     entries.sort();
