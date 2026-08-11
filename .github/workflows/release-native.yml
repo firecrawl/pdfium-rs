@@ -67,6 +67,10 @@ jobs:
           name: dist
           path: dist/
           if-no-files-found: error
+          # Re-runs of this job (e.g. after a failed attest step) must be
+          # able to replace the artifact instead of failing on a name
+          # conflict. Archives are byte-reproducible, so this is safe.
+          overwrite: true
       - name: Attest build provenance
         # Consumers verify with:
         #   gh attestation verify firecrawl-pdfium-<slug>.tgz --repo firecrawl/pdfium-rs
@@ -80,11 +84,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      # anchore/sbom-action wants actions:read, and contents:write for its
-      # auto-upload path (a no-op unless a release triggered the run; our
-      # own idempotent upload in the release job is what actually attaches
-      # SBOMs on tag pushes).
-      contents: write
+      # anchore/sbom-action only needs to read; its release auto-upload is
+      # disabled below (our own guarded upload in the release job is what
+      # attaches SBOMs), so contents stays read-only.
+      contents: read
       actions: read
     strategy:
       matrix:
@@ -97,7 +100,7 @@ jobs:
           path: dist
       - name: Generate SPDX SBOM for ${{ matrix.slug }}
         # Honest limitation: syft over an archive of opaque shared libraries
-        # is thin — it inventories files, not the 15 statically-linked
+        # is thin — it inventories files, not the 14 statically-linked
         # third-party components inside libpdfium. The real upstream linkage
         # is the PROVENANCE.json inside each archive plus the build
         # provenance attestation from the build job.
@@ -107,7 +110,7 @@ jobs:
           format: spdx-json
           output-file: firecrawl-pdfium-${{ matrix.slug }}.spdx.json
           upload-artifact: false
-          upload-release-assets: true
+          upload-release-assets: false
       - uses: actions/upload-artifact@v5
         with:
           name: sbom-${{ matrix.slug }}
@@ -153,6 +156,12 @@ jobs:
             echo "\`licenses/\`, \`LICENSE\`, \`VERSION\`, \`args.gn\`) plus \`PROVENANCE.json\`"
             echo "recording the upstream asset and sha256 it was repackaged from."
             echo
+            echo "### Release asset sizes"
+            echo
+            echo "| Bytes | Asset |"
+            echo "|---|---|"
+            awk -F'\t' '{ printf "| %\047d | `%s` |\n", $1, $2 }' dist/ARTIFACT-SIZES.txt
+            echo
             echo "### Upstream archive sha256s (from \`pdfium.lock.json\`, verified at repackage time)"
             echo
             echo "| Platform | Upstream asset | sha256 |"
@@ -184,5 +193,34 @@ jobs:
               --title "PDFium native binaries $TAG" \
               --notes-file notes.md
           fi
-      - name: Upload assets (idempotent)
-        run: gh release upload "$TAG" dist/* sbom/* --clobber
+      - name: Upload assets (idempotent, tamper-guarded)
+        # Byte-reproducible archives make re-runs produce identical bytes,
+        # so an already-published .tgz that DIFFERS from this build is an
+        # anomaly (lock file changed under the tag, or tampering) — refuse
+        # to overwrite it. Metadata assets (SHA256SUMS, sizes, SBOMs) may
+        # legitimately be regenerated and are refreshed in place.
+        run: |
+          mkdir -p .verify
+          for f in dist/* sbom/*; do
+            name=$(basename "$f")
+            if gh release download "$TAG" --pattern "$name" -O ".verify/$name" 2>/dev/null; then
+              local_sha=$(shasum -a 256 "$f" | cut -d' ' -f1)
+              remote_sha=$(shasum -a 256 ".verify/$name" | cut -d' ' -f1)
+              if [ "$local_sha" = "$remote_sha" ]; then
+                echo "already published and identical: $name"
+                continue
+              fi
+              case "$name" in
+                *.tgz)
+                  echo "::error::published $name differs from this build (published sha256 $remote_sha, rebuilt $local_sha). Refusing to overwrite a binary asset consumers may have pinned; delete the asset manually first if the replacement is intentional."
+                  exit 1
+                  ;;
+                *)
+                  echo "refreshing metadata asset $name"
+                  gh release upload "$TAG" "$f" --clobber
+                  ;;
+              esac
+            else
+              gh release upload "$TAG" "$f"
+            fi
+          done

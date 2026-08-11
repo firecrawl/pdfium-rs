@@ -14,6 +14,13 @@ Every step of both pipelines is idempotent — the universal recovery move is
 
 ## 1. One-time bootstrap: the first crates.io publish
 
+> **Prerequisite:** complete section 2 first. The `release` environment and
+> its required reviewers must exist *before* the first `v*` tag is pushed —
+> a missing environment is created implicitly with **no protection rules**,
+> which would leave the publish job ungated. (Before Trusted Publishing is
+> configured the job still fails safely at token minting, but the gate
+> should never be absent.)
+
 crates.io Trusted Publishing **cannot create a new crate** — the first-ever
 publish must use a classic API token. This is done once, by a maintainer,
 locally; afterwards no long-lived credential exists anywhere.
@@ -124,19 +131,16 @@ upstream build it repackages.
 
 1. Pick the new release from
    <https://github.com/bblanchon/pdfium-binaries/releases> (say
-   `chromium/8123`). Record the new sha256s — upstream publishes none, so
-   we compute them ourselves at pin time:
+   `chromium/8123`), then re-pin — this downloads every platform asset,
+   records fresh sha256s (upstream publishes none), reads the archive's
+   `VERSION`, and rewrites `pdfium.lock.json`:
 
    ```sh
-   base=https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/8123
-   for p in mac-arm64 mac-x64 linux-x64 linux-arm64 win-x64; do
-     curl -fsSL "$base/pdfium-$p.tgz" | shasum -a 256 | sed "s/-/pdfium-$p.tgz/"
-   done
+   cargo xtask pin chromium/8123
+   git diff pdfium.lock.json   # review: release, version, all five sha256s
    ```
 
-2. Update `pdfium.lock.json`: `release`, `pdfium_version` (from the
-   upstream release page), `base_url`, and every platform `sha256`.
-3. Sanity-check locally — the fetch verifies every checksum, then the full
+2. Sanity-check locally — the fetch verifies every checksum, then the full
    test suite runs against the new binary:
 
    ```sh
@@ -144,7 +148,7 @@ upstream build it repackages.
    cargo test --all-targets
    ```
 
-4. PR the lock change (CI runs the whole matrix against the new pin),
+3. PR the lock change (CI runs the whole matrix against the new pin),
    merge.
 
 ### 4b. Cutting the release
@@ -160,8 +164,10 @@ checksum-verified public artifacts, not a publish to a package registry):
 
 1. `build`: `cargo xtask repackage --all` — re-downloads every upstream
    archive, verifies each sha256 against the lock, repackages with
-   `PROVENANCE.json`, writes `SHA256SUMS`; attests build provenance for
-   every `.tgz`.
+   `PROVENANCE.json`, and writes `SHA256SUMS` + `ARTIFACT-SIZES.txt`;
+   attests build provenance for every `.tgz`. Repackaged archives are
+   **byte-reproducible** (in-process deterministic tar+gzip): the same
+   lock file and tag always produce identical bytes, on any machine.
 2. `sbom`: one SPDX SBOM per archive (syft). Note: syft over opaque shared
    libraries is thin by nature — the strong supply-chain links are the
    provenance attestation and the `PROVENANCE.json` inside each archive.
@@ -192,7 +198,7 @@ job is *Actions → the failed run → Re-run failed jobs*. Specifics:
 | `cargo publish` itself fails midway | crates.io publishes atomically: either the version exists or it does not. | Re-run failed jobs. The sparse-index guard (`https://index.crates.io/fi/re/firecrawl-pdfium`) checks whether the version landed: if yes it skips the publish; if no it publishes again. Both paths are safe. |
 | crates.io publish succeeded, `github-release` failed | The crate is live; only the GitHub release is missing. | Re-run **only** the failed `github-release` job. If the whole workflow is re-run instead, that is also safe: the guard skips the publish, `gh release view` skips an existing release. |
 | The tag was cut from the wrong commit but nothing published yet | — | Delete and re-create the tag. Once a version is on crates.io it is immutable: never move a published tag; ship a patch release instead (and `cargo yank` the bad version if warranted). |
-| `release-native` failed partway (e.g. after creating the release but before uploading all assets) | A release may exist with a subset of assets. | Re-run failed jobs. `gh release view || gh release create` skips creation; `gh release upload --clobber` re-uploads/overwrites every asset. Re-running `build` re-attests — additional attestations for identical subjects are harmless. |
+| `release-native` failed partway (e.g. after creating the release but before uploading all assets) | A release may exist with a subset of assets. | Re-run failed jobs. `gh release view \|\| gh release create` skips creation. The upload step is tamper-guarded: archives are byte-reproducible, so already-published assets are either identical (skipped) or **refused** if the bytes differ — a differing archive means the lock changed under the tag, or worse; investigate rather than override. Metadata assets (`SHA256SUMS`, sizes, SBOMs) refresh in place. Re-running `build` re-attests — additional attestations for identical subjects are harmless. |
 | Upstream sha256 mismatch during `repackage` | Upstream asset changed or download corrupted; xtask refuses to continue. | Do not override. If upstream really replaced the asset, that is a re-pin (section 4a) with newly recorded checksums, reviewed via PR. |
 | Environment approval request went to the wrong people / expired | Runs waiting on the gate can be approved for 30 days, then time out. | Re-run the workflow; adjust the reviewer list in the environment settings. |
 
@@ -209,8 +215,11 @@ job is *Actions → the failed run → Re-run failed jobs*. Specifics:
 - **Native release, end to end, without a real release**:
 
   ```sh
-  git tag native-v0-test && git push origin native-v0-test
-  gh workflow run release-native.yml -f tag=native-v0-test   # draft defaults to true
+  # The tag deliberately does NOT match the `native-v*` push filter —
+  # a matching tag would fire the push trigger and cut a real, non-draft
+  # release. Only the manual dispatch below runs for this tag.
+  git tag test-native-v0 && git push origin test-native-v0
+  gh workflow run release-native.yml -f tag=test-native-v0   # draft defaults to true
   ```
 
   `workflow_dispatch` runs create a **draft** release by default (the
@@ -218,8 +227,8 @@ job is *Actions → the failed run → Re-run failed jobs*. Specifics:
   assets/notes, verify the attestation, then clean up:
 
   ```sh
-  gh release delete native-v0-test --yes
-  git push origin :refs/tags/native-v0-test
+  gh release delete test-native-v0 --yes
+  git push origin :refs/tags/test-native-v0
   ```
 
   Known quirk: `gh release view` may not find draft releases by tag on a

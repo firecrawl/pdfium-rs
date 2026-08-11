@@ -12,10 +12,17 @@
 //!   upstream archive contents (`lib/`, `include/`, `licenses/`, `LICENSE`,
 //!   `VERSION`, `args.gn`) plus a `PROVENANCE.json` recording the upstream
 //!   release, asset, and sha256. Writes `<out>/firecrawl-pdfium-<slug>.tgz`
-//!   and a `SHA256SUMS` file covering everything in `<out>`.
+//!   (byte-reproducible; see `create_deterministic_tgz`) plus `SHA256SUMS`
+//!   and `ARTIFACT-SIZES.txt` covering everything in `<out>`.
+//!
+//! - `pin chromium/NNNN`
+//!   Re-pin `pdfium.lock.json` to a new upstream release: downloads every
+//!   platform asset, records fresh sha256 checksums, and rewrites the lock.
 //!
 //! Downloads shell out to `curl` and extraction to `tar`, both present on
-//! all GitHub-hosted runners (including Windows) and dev machines.
+//! all GitHub-hosted runners (including Windows) and dev machines; release
+//! archives are created in-process so their bytes are identical on every
+//! platform.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -373,50 +380,106 @@ fn repackage(root: &Path, args: &[String]) -> Result<(), String> {
 
         let out_name = format!("firecrawl-pdfium-{slug}.tgz");
         let out_path = out_dir.join(&out_name);
-        // Deterministic-ish tar: sorted names, no owner info.
-        let status = Command::new("tar")
-            .arg("czf")
-            .arg(&out_path)
-            .arg("-C")
-            .arg(&stage)
-            .args(["--owner=0", "--group=0"])
-            .arg(".")
-            .status();
-        // BSD tar (macOS/Windows) lacks --owner/--group; retry without.
-        let ok = match status {
-            Ok(s) if s.success() => true,
-            _ => {
-                let s = Command::new("tar")
-                    .arg("czf")
-                    .arg(&out_path)
-                    .arg("-C")
-                    .arg(&stage)
-                    .arg(".")
-                    .status()
-                    .map_err(|e| format!("running tar: {e}"))?;
-                s.success()
-            }
-        };
-        if !ok {
-            return Err(format!("tar failed creating {}", out_path.display()));
-        }
+        create_deterministic_tgz(&stage, &out_path)?;
         eprintln!("wrote {}", out_path.display());
     }
 
-    // SHA256SUMS over every file in the output dir (idempotent rebuild).
+    // SHA256SUMS over every file in the output dir (idempotent rebuild), with
+    // byte sizes recorded alongside in ARTIFACT-SIZES.txt for the release
+    // notes.
+    write_sums_and_sizes(&out_dir)?;
+    Ok(())
+}
+
+/// Creates `out_path` as a byte-reproducible .tgz of `stage`: two runs over
+/// identical input trees produce identical archives, on any platform.
+///
+/// Reproducibility is load-bearing for the release pipeline — published
+/// asset checksums must survive a workflow re-run (consumers pin them, and
+/// the upload step refuses to overwrite an asset with different bytes). The
+/// archive is written in-process (`tar` + `flate2` crates, pure Rust) so
+/// there is no BSD-vs-GNU-tar variance:
+///
+/// - entries are added in sorted path order (not readdir order);
+/// - entry names have no `./` prefix;
+/// - `tar::HeaderMode::Deterministic` zeroes ownership and timestamps and
+///   normalizes permissions;
+/// - the gzip stream has no name/mtime metadata and a fixed compression
+///   level, and flate2's pure-Rust backend is platform-independent.
+fn create_deterministic_tgz(stage: &Path, out_path: &Path) -> Result<(), String> {
+    let mut files = Vec::new();
+    collect_files(stage, stage, &mut files)?;
+    files.sort();
+
+    let out =
+        fs::File::create(out_path).map_err(|e| format!("create {}: {e}", out_path.display()))?;
+    let gz = flate2::GzBuilder::new().write(out, flate2::Compression::new(9));
+    let mut builder = tar::Builder::new(gz);
+    builder.mode(tar::HeaderMode::Deterministic);
+
+    for rel in &files {
+        let abs = stage.join(rel);
+        let mut f = fs::File::open(&abs).map_err(|e| format!("open {}: {e}", abs.display()))?;
+        // Forward slashes in entry names regardless of host OS.
+        let name = rel
+            .iter()
+            .map(|c| c.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        builder
+            .append_file(&name, &mut f)
+            .map_err(|e| format!("tar append {name}: {e}"))?;
+    }
+    let gz = builder
+        .into_inner()
+        .map_err(|e| format!("tar finish: {e}"))?;
+    gz.finish().map_err(|e| format!("gzip finish: {e}"))?;
+    Ok(())
+}
+
+fn collect_files(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    for entry in fs::read_dir(dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files(root, &path, out)?;
+        } else {
+            out.push(
+                path.strip_prefix(root)
+                    .expect("path is under root")
+                    .to_path_buf(),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Writes SHA256SUMS and ARTIFACT-SIZES.txt covering every file in `out_dir`.
+fn write_sums_and_sizes(out_dir: &Path) -> Result<(), String> {
     let mut sums = String::new();
-    let mut entries: Vec<_> = fs::read_dir(&out_dir)
+    let mut sizes = String::new();
+    let mut entries: Vec<_> = fs::read_dir(out_dir)
         .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.is_file() && p.file_name().map_or(true, |n| n != "SHA256SUMS"))
+        .filter(|p| {
+            p.is_file()
+                && p.file_name()
+                    .map_or(true, |n| n != "SHA256SUMS" && n != "ARTIFACT-SIZES.txt")
+        })
         .collect();
     entries.sort();
     for path in entries {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         sums.push_str(&format!("{}  {}\n", sha256_file(&path)?, name));
+        let bytes = fs::metadata(&path).map_err(|e| e.to_string())?.len();
+        sizes.push_str(&format!("{bytes}\t{name}\n"));
     }
     fs::write(out_dir.join("SHA256SUMS"), sums).map_err(|e| e.to_string())?;
-    eprintln!("wrote {}", out_dir.join("SHA256SUMS").display());
+    fs::write(out_dir.join("ARTIFACT-SIZES.txt"), sizes).map_err(|e| e.to_string())?;
+    eprintln!(
+        "wrote {} and ARTIFACT-SIZES.txt",
+        out_dir.join("SHA256SUMS").display()
+    );
     Ok(())
 }

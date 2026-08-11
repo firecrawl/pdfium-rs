@@ -172,7 +172,9 @@ from many threads.
   `BGRA_Premul` is Skia-renderer-only and not exposed (default binaries use
   the AGG renderer).
 - **Resource limits**: `RenderConfig::max_output_bytes` (default 1 GiB)
-  bounds the output allocation; oversize requests fail with
+  bounds the output allocation, and text extraction is bounded the same
+  way by a character ceiling (`PdfPage::text_with_limit`, default one
+  million characters) checked before any allocation; oversize requests fail with
   `Error::RenderTooLarge` before any allocation. PDF's 14,400 pt page-size
   ceiling times a large scale overflows quickly; the limit makes that a
   typed error instead of an OOM.
@@ -193,8 +195,8 @@ plain data on the owned render result, so OCR-style consumers can map boxes
 back to page space long after the page and document are gone.
 
 `PdfPage::device_to_page` / `page_to_device` also expose PDFium's own
-conversions directly; tests assert the derived affine agrees with PDFium
-within rounding.
+(integer-quantized) conversions directly; tests assert the derived affine
+agrees with them within one pixel of quantization.
 
 ## Error taxonomy
 
@@ -234,7 +236,7 @@ go-pdfium — already targets). Default builds have `pdf_enable_v8 = false`,
 - The **release workflow repackages** the pinned archives into
   `firecrawl-pdfium` GitHub release assets, preserving the `licenses/`
   directory and `LICENSE` verbatim (that satisfies every notice obligation —
-  all 15 bundled components are permissively licensed, see
+  all 14 bundled components are permissively licensed, see
   THIRD-PARTY-NOTICES.md), adding `VERSION`, build metadata, `SHA256SUMS`,
   an SPDX SBOM (syft), and GitHub build-provenance attestations
   (`actions/attest`), all verifiable with `gh attestation verify`.
@@ -263,8 +265,9 @@ go-pdfium — already targets). Default builds have `pdf_enable_v8 = false`,
   trusted publishing, then revoke the token) is step-by-step in
   `docs/RELEASING.md`. No long-lived credentials in the repository or its
   secrets after bootstrap.
-- **Gating**: tag `vX.Y.Z` → `release.yml` verifies tag == Cargo.toml
-  version, runs the full test matrix, then the publish job waits on the
+- **Gating**: tag `vX.Y.Z` → `publish.yml` verifies tag == Cargo.toml
+  version, runs the full test suite on Linux (the five-platform matrix
+  runs in `ci.yml` pre-merge), then the publish job waits on the
   `release` GitHub Environment (required reviewers = human approval gate)
   before `cargo publish`.
 - **Idempotency**: every phase is independently re-runnable — the publish
@@ -289,9 +292,11 @@ go-pdfium — already targets). Default builds have `pdf_enable_v8 = false`,
   concurrency stress, and resource limits. Loading-failure tests run in
   their own test binary (process isolation from the singleton).
 - **Fuzzing**: `cargo-fuzz` targets for document load + first-page render on
-  arbitrary bytes; scheduled CI job, short PR smoke.
+  arbitrary bytes; scheduled weekly CI job plus on-demand `workflow_dispatch`
+  (fuzz builds need nightly + cargo-fuzz, too heavy for every PR).
 - **Benchmarks**: criterion render latency across scales/formats, plus a
-  peak-RSS report example; artifact sizes reported by the release workflow.
+  peak-RSS report example; native artifact sizes are recorded in each
+  release's `ARTIFACT-SIZES.txt` asset and its notes table.
 
 ## Deferred (documented limitations)
 

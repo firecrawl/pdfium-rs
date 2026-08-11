@@ -114,6 +114,17 @@ pub enum Error {
         /// The 0-based page index whose text failed to load.
         index: usize,
     },
+    /// The page reports more text characters than the configured
+    /// extraction limit (see [`PdfPage::text_with_limit`]); nothing was
+    /// allocated.
+    ///
+    /// [`PdfPage::text_with_limit`]: crate::PdfPage::text_with_limit
+    TextTooLarge {
+        /// Characters PDFium reports on the page.
+        chars: usize,
+        /// The configured ceiling.
+        limit: usize,
+    },
     /// PDFium failed to initialize the form-fill environment.
     FormInitFailed,
     /// The rendered output would exceed [`RenderConfig::max_output_bytes`]
@@ -179,6 +190,11 @@ impl fmt::Display for Error {
             Error::TextLoadFailed { index } => {
                 write!(f, "PDFium failed to load text for page {index}")
             }
+            Error::TextTooLarge { chars, limit } => write!(
+                f,
+                "page reports {chars} text characters, exceeding the extraction \
+                 limit of {limit}"
+            ),
             Error::FormInitFailed => {
                 write!(f, "PDFium failed to initialize the form-fill environment")
             }

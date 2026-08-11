@@ -189,7 +189,13 @@ fn load_failure_then_singleton_lifecycle() {
             loaded_from,
             requested,
         }) => {
-            assert_eq!(requested, different_path);
+            // `requested` is canonicalized (absolute) when the file exists,
+            // so different spellings of the same file are recognized;
+            // compare canonical forms.
+            let expected = different_path
+                .canonicalize()
+                .unwrap_or_else(|_| different_path.clone());
+            assert_eq!(requested, expected);
             assert_eq!(loaded_from.as_deref(), pdfium.loaded_from());
         }
         other => panic!("expected AlreadyLoaded for a different path, got {other:?}"),

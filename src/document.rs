@@ -390,7 +390,10 @@ fn read_utf16le_buffer(
     }
     let unit_len = (byte_len as usize) / 2;
     let mut units = vec![0u16; unit_len];
-    let written = call(units.as_mut_ptr().cast(), byte_len);
+    // Pass the actual allocated size, not the echoed length: if PDFium ever
+    // reported an odd byte_len, echoing it back would overstate the buffer
+    // by one byte.
+    let written = call(units.as_mut_ptr().cast(), (unit_len * 2) as c_ulong);
     if written == 0 {
         return None;
     }

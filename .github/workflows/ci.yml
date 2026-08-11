@@ -37,11 +37,12 @@ jobs:
         # The tier-1 platform matrix from docs/DESIGN.md:
         #   ubuntu-latest    -> linux-x64
         #   ubuntu-24.04-arm -> linux-arm64 (GA runner for public repos)
-        #   macos-14         -> mac-arm64
+        #   macos-15         -> mac-arm64 (macos-14 entered deprecation
+        #                       July 2026, retirement 2026-11-02)
         #   macos-15-intel   -> mac-x64 (macos-13, the previous Intel image,
         #                       was retired from hosted runners)
         #   windows-latest   -> win-x64
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, macos-15-intel, windows-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5

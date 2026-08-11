@@ -6,7 +6,7 @@
 mod common;
 
 use common::{fixture, pdfium};
-use firecrawl_pdfium::PageText;
+use firecrawl_pdfium::{Error, PageText};
 
 fn hello_text() -> PageText {
     let p = pdfium();
@@ -161,4 +161,27 @@ fn vendored_hello_world_extracts() {
     );
     assert!(text.text().contains("Goodbye, world!"));
     assert!(!text.is_empty());
+}
+
+/// The text-extraction character ceiling rejects before allocating, with a
+/// typed error carrying both numbers; a generous ceiling still extracts.
+#[test]
+fn text_limit_is_enforced_and_typed() {
+    let p = pdfium();
+    let doc = p
+        .load_document(fixture("hello_text.pdf"), None)
+        .expect("open");
+    let page = doc.page(0).expect("page");
+
+    // 14 characters on the page; a ceiling of 5 must refuse.
+    match page.text_with_limit(5) {
+        Err(Error::TextTooLarge { chars, limit }) => {
+            assert_eq!(chars, 14);
+            assert_eq!(limit, 5);
+        }
+        other => panic!("expected TextTooLarge, got {other:?}"),
+    }
+    // Exactly at the count succeeds, as does the default.
+    assert_eq!(page.text_with_limit(14).expect("at limit").len(), 14);
+    assert_eq!(page.text().expect("default limit").len(), 14);
 }

@@ -66,6 +66,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v5
         with:
+          overwrite: true
           name: fuzz-artifacts
           path: fuzz/artifacts/
           if-no-files-found: ignore

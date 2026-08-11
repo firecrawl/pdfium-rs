@@ -124,7 +124,14 @@ Encrypted documents fail with typed errors (`Error::PasswordRequired`,
 `Error::IncorrectPassword`, `Error::UnsupportedSecurity`); garbage and
 truncated input with `Error::InvalidPdf`; oversized render requests with
 `Error::RenderTooLarge`, bounded by `RenderConfig::max_output_bytes`
-(default 1 GiB) *before* any allocation happens.
+(default 1 GiB) *before* any allocation happens. Text extraction is
+bounded the same way: pages claiming more than one million characters
+fail with `Error::TextTooLarge` before allocating (tunable via
+`PdfPage::text_with_limit`). One inherent caveat: opening pages and text
+runs PDFium's parser over attacker-controlled content, and PDFium's own
+CPU/memory use during parsing cannot be capped from the embedding API —
+for hard isolation of hostile input, run extraction in a separate process
+(the same recommendation PDFium's other embedders follow).
 
 ## Coordinate mapping
 

@@ -38,11 +38,9 @@ fn oversized_render_hits_default_cap() {
 /// width fits i32 but width*bpp (2.88e9) exceeds i32::MAX. No allocation,
 /// no crash.
 ///
-/// NOTE: even more extreme scales (e.g. 1e6) currently panic in debug
-/// builds with "attempt to multiply with overflow" while computing
-/// `required_bytes` (w and h saturate to u32::MAX and w*h*4 overflows u64);
-/// that is reported as a bug against src/render.rs and deliberately not
-/// pinned here.
+/// (Even more extreme scales saturate the dimension casts; the requirement
+/// math runs in u128, pinned by `extreme_scale_saturates_instead_of_
+/// overflowing` below.)
 #[test]
 fn uncapped_render_hits_i32_guards() {
     let p = pdfium();

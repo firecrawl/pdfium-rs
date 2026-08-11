@@ -293,3 +293,66 @@ fn char_bounds_map_onto_rendered_glyph() {
     }
     assert_eq!(control_darkest, 255, "the empty page center stays white");
 }
+
+/// The raw PDFium conversions (`PdfPage::device_to_page` / `page_to_device`)
+/// agree with the derived affine `PageTransform` at interior sample points
+/// (corners agree by construction; interior points prove the affine model).
+/// PDFium quantizes device coordinates to integers, hence the 1px tolerance.
+#[test]
+fn raw_conversions_agree_with_derived_transform() {
+    let p = pdfium();
+    let doc = p
+        .load_document(fixture("red_rect.pdf"), None)
+        .expect("open");
+    let page = doc.page(0).expect("page");
+
+    for rotation in [
+        Rotation::None,
+        Rotation::Clockwise90,
+        Rotation::Rotate180,
+        Rotation::Clockwise270,
+    ] {
+        let cfg = RenderConfig::new().scale(2.5).rotate(rotation);
+        let t = page.transform_for(&cfg).expect("transform");
+
+        // Interior device points (integers, so quantization is exact on
+        // the way in).
+        for (dx, dy) in [(37.0, 19.0), (211.0, 83.0), (123.0, 157.0_f64)] {
+            if dx >= f64::from(t.pixel_width()) || dy >= f64::from(t.pixel_height()) {
+                continue;
+            }
+            let via_ffi = page
+                .device_to_page(&cfg, PixelPoint::new(dx, dy))
+                .expect("device_to_page");
+            let via_affine = t.pixel_to_page(PixelPoint::new(dx, dy));
+            // PDFium computes DeviceToPage in f32 internally; allow its
+            // rounding noise (observed ~1.5e-6) while staying far below a
+            // pixel.
+            assert!(
+                (via_ffi.x - via_affine.x).abs() < 1e-4 && (via_ffi.y - via_affine.y).abs() < 1e-4,
+                "{rotation:?} device({dx},{dy}): ffi ({},{}) vs affine ({},{})",
+                via_ffi.x,
+                via_ffi.y,
+                via_affine.x,
+                via_affine.y,
+            );
+        }
+
+        // Interior page points; PDFium returns integer device coords, so
+        // agreement is within one pixel of the continuous mapping.
+        for (px, py) in [(13.5, 22.25), (101.0, 51.0), (177.75, 88.5_f64)] {
+            let via_ffi = page
+                .page_to_device(&cfg, PagePoint::new(px, py))
+                .expect("page_to_device");
+            let via_affine = t.page_to_pixel(PagePoint::new(px, py));
+            assert!(
+                (via_ffi.x - via_affine.x).abs() <= 1.0 && (via_ffi.y - via_affine.y).abs() <= 1.0,
+                "{rotation:?} page({px},{py}): ffi ({},{}) vs affine ({},{})",
+                via_ffi.x,
+                via_ffi.y,
+                via_affine.x,
+                via_affine.y,
+            );
+        }
+    }
+}

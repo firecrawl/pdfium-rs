@@ -15,10 +15,15 @@ documentation = "https://docs.rs/firecrawl-pdfium"
 readme = "README.md"
 keywords = ["pdf", "pdfium", "render", "rasterize", "document"]
 categories = ["api-bindings", "rendering", "multimedia::images"]
+# The published package is the pure library plus examples: tests and
+# benches depend on tests/fixtures/, which stays out of the package (and
+# tests/fixtures/pdfium/ carries a third-party license), so shipping them
+# would ship targets that cannot run.
 exclude = [
     ".github/",
+    "benches/",
     "docs/",
-    "tests/fixtures/",
+    "tests/",
     "tools/",
     "fuzz/",
 ]

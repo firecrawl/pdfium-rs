@@ -27,10 +27,12 @@ pub struct PageChar {
 /// geometry. Plain owned data — no PDFium resources, `Send + Sync`,
 /// outlives page and document.
 ///
-/// Note that [`text`](PageText::text) (UTF-16 derived, may contain
-/// surrogate-paired characters) and [`chars`](PageText::chars) (one entry
-/// per PDFium character index) are indexed differently; correlate through
-/// geometry rather than assuming 1:1 index equality.
+/// PDFium's text engine emits UCS-2: characters outside the Basic
+/// Multilingual Plane are not representable in [`text`](PageText::text)
+/// (PDFium substitutes or drops them), and each [`chars`](PageText::chars)
+/// entry carries the raw code in [`PageChar::code`]. Indexing also
+/// differs between the two views — correlate through geometry rather than
+/// assuming 1:1 index equality.
 #[derive(Debug, Clone, Default)]
 pub struct PageText {
     text: String,
@@ -60,12 +62,29 @@ impl PageText {
     }
 }
 
+/// Default ceiling for [`PdfPage::text`]: one million characters. Real
+/// pages hold a few thousand; the ceiling exists because a small hostile
+/// PDF can claim an enormous character count and this crate allocates
+/// roughly 90 bytes per character during extraction.
+pub const DEFAULT_MAX_TEXT_CHARS: usize = 1_000_000;
+
 impl<'doc> PdfPage<'doc> {
-    /// Extracts the page's text with per-character geometry.
+    /// Extracts the page's text with per-character geometry, limited to
+    /// [`DEFAULT_MAX_TEXT_CHARS`] characters.
     ///
     /// Extraction is eager: the returned [`PageText`] holds no PDFium
     /// resources and stays valid after the page is dropped.
     pub fn text(&self) -> Result<PageText> {
+        self.text_with_limit(DEFAULT_MAX_TEXT_CHARS)
+    }
+
+    /// Like [`text`](Self::text) with an explicit character ceiling.
+    ///
+    /// Pages reporting more than `max_chars` characters fail with
+    /// [`Error::TextTooLarge`] *before* any allocation, mirroring how
+    /// [`RenderConfig::max_output_bytes`](crate::RenderConfig::max_output_bytes)
+    /// bounds rendering.
+    pub fn text_with_limit(&self, max_chars: usize) -> Result<PageText> {
         let index = self.index();
         self.ffi(|b| -> Result<PageText> {
             // SAFETY: live page handle.
@@ -74,25 +93,49 @@ impl<'doc> PdfPage<'doc> {
                 return Err(Error::TextLoadFailed { index });
             }
             // Ensure FPDFText_ClosePage runs on every path below.
-            let result = extract(b, text_page);
+            let result = extract(b, text_page, max_chars);
             // SAFETY: live text page handle, closed exactly once.
             unsafe { b.FPDFText_ClosePage(text_page) };
-            result.ok_or(Error::TextLoadFailed { index })
+            match result {
+                Ok(text) => Ok(text),
+                Err(ExtractFail::CountFailed) => Err(Error::TextLoadFailed { index }),
+                Err(ExtractFail::TooLarge { chars }) => Err(Error::TextTooLarge {
+                    chars,
+                    limit: max_chars,
+                }),
+            }
         })
     }
 }
 
-/// Reads everything out of a live text page. Returns `None` on hard
-/// errors (`FPDFText_CountChars == -1`).
-fn extract(b: &sys::Bindings, text_page: sys::FPDF_TEXTPAGE) -> Option<PageText> {
+enum ExtractFail {
+    /// `FPDFText_CountChars` returned -1.
+    CountFailed,
+    /// The reported character count exceeds the caller's ceiling.
+    TooLarge { chars: usize },
+}
+
+/// Reads everything out of a live text page.
+fn extract(
+    b: &sys::Bindings,
+    text_page: sys::FPDF_TEXTPAGE,
+    max_chars: usize,
+) -> std::result::Result<PageText, ExtractFail> {
     // SAFETY (all calls below): live text page handle; indices are within
     // [0, count); out-pointers are valid locals.
     let count = unsafe { b.FPDFText_CountChars(text_page) };
     if count < 0 {
-        return None;
+        return Err(ExtractFail::CountFailed);
     }
     if count == 0 {
-        return Some(PageText::default());
+        return Ok(PageText::default());
+    }
+    // The count is attacker-controlled input (a hostile PDF can claim
+    // near-i32::MAX characters); enforce the ceiling before allocating.
+    if count as usize > max_chars {
+        return Err(ExtractFail::TooLarge {
+            chars: count as usize,
+        });
     }
 
     // Full text: `count + 1` UTF-16 units (PDFium appends a NUL and counts
@@ -106,7 +149,9 @@ fn extract(b: &sys::Bindings, text_page: sys::FPDF_TEXTPAGE) -> Option<PageText>
     };
     let text = String::from_utf16_lossy(text_units);
 
-    let mut chars = Vec::with_capacity(count as usize);
+    // Reserve conservatively: the ceiling already bounds the worst case,
+    // but a lying count should not pre-allocate gigabytes either.
+    let mut chars = Vec::with_capacity((count as usize).min(65_536));
     for i in 0..count {
         let code = unsafe { b.FPDFText_GetUnicode(text_page, i) };
 
@@ -153,5 +198,5 @@ fn extract(b: &sys::Bindings, text_page: sys::FPDF_TEXTPAGE) -> Option<PageText>
         });
     }
 
-    Some(PageText { text, chars })
+    Ok(PageText { text, chars })
 }

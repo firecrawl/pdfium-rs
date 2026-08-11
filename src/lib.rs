@@ -84,7 +84,7 @@ pub use forms::FormType;
 pub use library::{platform_library_name, platform_slug, Pdfium, PDFIUM_LIB_PATH_ENV};
 pub use page::{PageSize, PdfPage, Rotation};
 pub use render::{Color, PixelFormat, RenderConfig, RenderedPage};
-pub use text::{PageChar, PageText};
+pub use text::{PageChar, PageText, DEFAULT_MAX_TEXT_CHARS};
 
 impl From<(f64, f64)> for PixelPoint {
     fn from((x, y): (f64, f64)) -> Self {

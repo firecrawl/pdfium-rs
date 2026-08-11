@@ -590,6 +590,100 @@ impl<'doc> PdfPage<'doc> {
         let rotate = config.extra_rotation.as_raw();
         self.ffi(|b| derive_transform(b, self.handle(), width, height, rotate))
     }
+
+    /// PDFium's own device→page conversion (`FPDF_DeviceToPage`) for the
+    /// geometry `config` would produce.
+    ///
+    /// PDFium's C API takes *integer* device coordinates, so `pixel` is
+    /// rounded to the nearest pixel first. [`PageTransform`] (from
+    /// [`transform_for`](Self::transform_for) or a render) offers the same
+    /// mapping in continuous coordinates without an FFI call; the two agree
+    /// to within the integer quantization (tested).
+    pub fn device_to_page(
+        &self,
+        config: &RenderConfig,
+        pixel: crate::PixelPoint,
+    ) -> Result<crate::PagePoint> {
+        let (width, height) = config.resolve_dimensions(self.size())?;
+        let rotate = config.extra_rotation.as_raw();
+        let dx = clamp_to_c_int(pixel.x)?;
+        let dy = clamp_to_c_int(pixel.y)?;
+        let (mut px, mut py) = (0.0f64, 0.0f64);
+        // SAFETY: live page handle, valid out-pointers; viewport parameters
+        // match what a render with this config would use, as PDFium
+        // requires.
+        let ok = self.ffi(|b| unsafe {
+            b.FPDF_DeviceToPage(
+                self.handle(),
+                0,
+                0,
+                width as c_int,
+                height as c_int,
+                rotate,
+                dx,
+                dy,
+                &mut px,
+                &mut py,
+            )
+        });
+        if ok != 0 {
+            Ok(crate::PagePoint::new(px, py))
+        } else {
+            Err(Error::RenderFailed {
+                reason: "FPDF_DeviceToPage failed",
+            })
+        }
+    }
+
+    /// PDFium's own page→device conversion (`FPDF_PageToDevice`) for the
+    /// geometry `config` would produce.
+    ///
+    /// PDFium returns *integer* device coordinates, so the result is
+    /// quantized to whole pixels. Use [`PageTransform`] for sub-pixel
+    /// precision; the two agree to within one pixel (tested).
+    pub fn page_to_device(
+        &self,
+        config: &RenderConfig,
+        point: crate::PagePoint,
+    ) -> Result<crate::PixelPoint> {
+        let (width, height) = config.resolve_dimensions(self.size())?;
+        let rotate = config.extra_rotation.as_raw();
+        let (mut dx, mut dy) = (0 as c_int, 0 as c_int);
+        // SAFETY: live page handle, valid out-pointers; viewport parameters
+        // match what a render with this config would use.
+        let ok = self.ffi(|b| unsafe {
+            b.FPDF_PageToDevice(
+                self.handle(),
+                0,
+                0,
+                width as c_int,
+                height as c_int,
+                rotate,
+                point.x,
+                point.y,
+                &mut dx,
+                &mut dy,
+            )
+        });
+        if ok != 0 {
+            Ok(crate::PixelPoint::new(f64::from(dx), f64::from(dy)))
+        } else {
+            Err(Error::RenderFailed {
+                reason: "FPDF_PageToDevice failed",
+            })
+        }
+    }
+}
+
+fn clamp_to_c_int(v: f64) -> Result<c_int> {
+    let r = v.round();
+    if r.is_finite() && (f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&r) {
+        Ok(r as c_int)
+    } else {
+        Err(Error::InvalidConfig(format!(
+            "device coordinate {v} is outside the addressable integer range"
+        )))
+    }
 }
 
 /// Derives the affine pixel↔page transform by asking PDFium for the page

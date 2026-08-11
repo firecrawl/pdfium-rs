@@ -142,6 +142,10 @@ impl Pdfium {
 
         // 4. System loader by bare name.
         searched.push(format!("<system loader: {}>", platform_library_name()));
+        // SAFETY: opening a shared library runs its initializers. The name
+        // is the fixed platform PDFium library name resolved through the
+        // system loader's trusted search path, and the symbol table is
+        // validated by `Bindings::load_from_library` before any call.
         match unsafe { libloading::Library::new(platform_library_name()) } {
             Ok(lib) => init_from_library(lib, None),
             Err(_) => Err(Error::Load(LoadError::LibraryNotFound { searched })),
@@ -157,12 +161,17 @@ impl Pdfium {
         let path = path.as_ref();
         let _init = lock_ignore_poison(&INIT_LOCK);
         if let Some(inner) = INSTANCE.get() {
-            return if inner.loaded_from.as_deref() == Some(path) {
+            // Canonicalize before comparing so different spellings of the
+            // same file (relative vs absolute, symlinks) are recognized as
+            // the already-loaded library. `loaded_from` is stored
+            // canonicalized by init_from_file.
+            let requested = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            return if inner.loaded_from.as_deref() == Some(requested.as_path()) {
                 Ok(Pdfium { inner })
             } else {
                 Err(Error::AlreadyLoaded {
                     loaded_from: inner.loaded_from.clone(),
-                    requested: path.to_path_buf(),
+                    requested,
                 })
             };
         }
@@ -226,13 +235,21 @@ fn init_from_file(path: &Path) -> Result<Pdfium> {
             searched: vec![path.display().to_string()],
         }));
     }
+    // SAFETY: opening a shared library runs its initializers. The path was
+    // explicitly configured by the caller or produced by the documented
+    // discovery chain, and the symbol table is validated by
+    // `Bindings::load_from_library` before any call.
     let lib = unsafe { libloading::Library::new(path) }.map_err(|source| {
         Error::Load(LoadError::OpenFailed {
             path: path.to_path_buf(),
             source,
         })
     })?;
-    init_from_library(lib, Some(path.to_path_buf()))
+    // Store the canonical path so `load_from_path` can recognize other
+    // spellings of the same file, and so a discovery-relative path stays
+    // meaningful after a cwd change.
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    init_from_library(lib, Some(canonical))
 }
 
 /// Caller must hold `INIT_LOCK` and have verified `INSTANCE` is unset.
