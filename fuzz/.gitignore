@@ -1,0 +1,6 @@
+# Fuzzing state is machine-local (corpus/artifacts are also ignored at the
+# repository root; listed here so fuzz/ is self-contained).
+target/
+corpus/
+artifacts/
+coverage/

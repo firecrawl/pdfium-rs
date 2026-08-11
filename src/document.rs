@@ -137,12 +137,13 @@ impl Pdfium {
         password: Option<&str>,
     ) -> Result<PdfDocument> {
         let bytes: Box<[u8]> = bytes.into().into_boxed_slice();
-        let c_password = match password {
-            Some(p) => Some(CString::new(p).map_err(|_| {
-                Error::InvalidConfig("password must not contain NUL bytes".into())
-            })?),
-            None => None,
-        };
+        let c_password =
+            match password {
+                Some(p) => Some(CString::new(p).map_err(|_| {
+                    Error::InvalidConfig("password must not contain NUL bytes".into())
+                })?),
+                None => None,
+            };
 
         let (handle, last_error) = self.ffi(|b| {
             // SAFETY: `bytes` is a live allocation of the given length and
@@ -225,7 +226,10 @@ impl PdfDocument {
     /// Opens page `index` (0-based).
     pub fn page(&self, index: usize) -> Result<PdfPage<'_>> {
         if index >= self.page_count {
-            return Err(Error::PageIndexOutOfBounds { index, count: self.page_count });
+            return Err(Error::PageIndexOutOfBounds {
+                index,
+                count: self.page_count,
+            });
         }
         PdfPage::open(self, index)
     }
@@ -239,15 +243,20 @@ impl PdfDocument {
     /// dimension surveys of large documents.
     pub fn page_size(&self, index: usize) -> Result<PageSize> {
         if index >= self.page_count {
-            return Err(Error::PageIndexOutOfBounds { index, count: self.page_count });
+            return Err(Error::PageIndexOutOfBounds {
+                index,
+                count: self.page_count,
+            });
         }
         let mut size = sys::FS_SIZEF::default();
         // SAFETY: valid handle, in-bounds index, valid out-pointer.
-        let ok = self.ffi(|b| unsafe {
-            b.FPDF_GetPageSizeByIndexF(self.handle, index as i32, &mut size)
-        });
+        let ok = self
+            .ffi(|b| unsafe { b.FPDF_GetPageSizeByIndexF(self.handle, index as i32, &mut size) });
         if ok != 0 {
-            Ok(PageSize { width: size.width, height: size.height })
+            Ok(PageSize {
+                width: size.width,
+                height: size.height,
+            })
         } else {
             Err(Error::PageLoadFailed { index })
         }

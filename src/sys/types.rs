@@ -282,8 +282,7 @@ pub struct FPDF_FORMFILLINFO {
         ) -> c_int,
     >,
     /// Required. Uninstall a timer set by `FFI_SetTimer`.
-    pub FFI_KillTimer:
-        Option<unsafe extern "C" fn(pThis: *mut FPDF_FORMFILLINFO, nTimerID: c_int)>,
+    pub FFI_KillTimer: Option<unsafe extern "C" fn(pThis: *mut FPDF_FORMFILLINFO, nTimerID: c_int)>,
     /// Required (header notes it is currently unused). Local time query.
     pub FFI_GetLocalTime:
         Option<unsafe extern "C" fn(pThis: *mut FPDF_FORMFILLINFO) -> FPDF_SYSTEMTIME>,
@@ -305,9 +304,8 @@ pub struct FPDF_FORMFILLINFO {
     pub FFI_GetRotation:
         Option<unsafe extern "C" fn(pThis: *mut FPDF_FORMFILLINFO, page: FPDF_PAGE) -> c_int>,
     /// Required. Execute a named action.
-    pub FFI_ExecuteNamedAction: Option<
-        unsafe extern "C" fn(pThis: *mut FPDF_FORMFILLINFO, namedAction: FPDF_BYTESTRING),
-    >,
+    pub FFI_ExecuteNamedAction:
+        Option<unsafe extern "C" fn(pThis: *mut FPDF_FORMFILLINFO, namedAction: FPDF_BYTESTRING)>,
     /// Optional. Text field focus change.
     pub FFI_SetTextFieldFocus: Option<
         unsafe extern "C" fn(
@@ -462,11 +460,7 @@ pub struct FPDF_FORMFILLINFO {
         ),
     >,
     pub FFI_DoURIActionWithKeyboardModifier: Option<
-        unsafe extern "C" fn(
-            param: *mut FPDF_FORMFILLINFO,
-            uri: FPDF_BYTESTRING,
-            modifiers: c_int,
-        ),
+        unsafe extern "C" fn(param: *mut FPDF_FORMFILLINFO, uri: FPDF_BYTESTRING, modifiers: c_int),
     >,
 }
 

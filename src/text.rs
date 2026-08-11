@@ -99,7 +99,11 @@ fn extract(b: &sys::Bindings, text_page: sys::FPDF_TEXTPAGE) -> Option<PageText>
     // it in the return value).
     let mut units = vec![0u16; count as usize + 1];
     let written = unsafe { b.FPDFText_GetText(text_page, 0, count, units.as_mut_ptr()) };
-    let text_units = if written > 0 { &units[..(written as usize - 1)] } else { &[][..] };
+    let text_units = if written > 0 {
+        &units[..(written as usize - 1)]
+    } else {
+        &[][..]
+    };
     let text = String::from_utf16_lossy(text_units);
 
     let mut chars = Vec::with_capacity(count as usize);
@@ -108,9 +112,9 @@ fn extract(b: &sys::Bindings, text_page: sys::FPDF_TEXTPAGE) -> Option<PageText>
 
         let (mut left, mut right, mut bottom, mut top) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
         // Note PDFium's parameter order here: left, right, bottom, top.
-        let have_box =
-            unsafe { b.FPDFText_GetCharBox(text_page, i, &mut left, &mut right, &mut bottom, &mut top) }
-                != 0;
+        let have_box = unsafe {
+            b.FPDFText_GetCharBox(text_page, i, &mut left, &mut right, &mut bottom, &mut top)
+        } != 0;
         let bounds = if have_box {
             PageRect::new(left, bottom, right, top)
         } else {
@@ -122,7 +126,12 @@ fn extract(b: &sys::Bindings, text_page: sys::FPDF_TEXTPAGE) -> Option<PageText>
         let loose_bounds = if have_loose {
             // FS_RECTF carries top-left/bottom-right corners; PageRect is
             // (left, bottom, right, top).
-            PageRect::new(loose.left as f64, loose.bottom as f64, loose.right as f64, loose.top as f64)
+            PageRect::new(
+                loose.left as f64,
+                loose.bottom as f64,
+                loose.right as f64,
+                loose.top as f64,
+            )
         } else {
             bounds
         };

@@ -1,0 +1,71 @@
+# Scheduled fuzzing smoke for firecrawl-pdfium.
+#
+# Runs each cargo-fuzz target briefly (90 s) once a week and on demand. This
+# is a smoke pass, not a campaign: it catches regressions in the fuzz targets
+# themselves and shallow crashes. Longer runs happen on maintainers' machines
+# (`cargo +nightly fuzz run <target>` with no time cap).
+
+name: Fuzz
+
+on:
+  schedule:
+    # Weekly, Monday 06:17 UTC (off the top of the hour to dodge load spikes).
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    # Failures here are real signal (a crash or a broken target), never soft.
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # The fuzz crate is excluded from the main workspace and builds
+          # into fuzz/target with its own lockfile.
+          workspaces: |
+            .
+            fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fetch pinned PDFium binary
+        # The fuzz targets load documents and render, so they need the real
+        # library at runtime. cargo-fuzz executes targets from the fuzz
+        # crate's directory, so point PDFIUM_LIB_PATH at the fetched library
+        # explicitly instead of relying on the cwd-relative discovery chain.
+        run: echo "PDFIUM_LIB_PATH=$(cargo xtask fetch-pdfium --print-path)" >> "$GITHUB_ENV"
+      - name: Run every fuzz target for 90 seconds
+        run: |
+          targets=$(cargo +nightly fuzz list)
+          if [ -z "$targets" ]; then
+            echo "::error::cargo fuzz list returned no targets"
+            exit 1
+          fi
+          for t in $targets; do
+            echo "::group::fuzz $t"
+            cargo +nightly fuzz run "$t" -- -max_total_time=90
+            echo "::endgroup::"
+          done
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

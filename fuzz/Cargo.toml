@@ -1,0 +1,34 @@
+[package]
+name = "firecrawl-pdfium-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+firecrawl-pdfium = { path = ".." }
+
+[[bin]]
+name = "load_document"
+path = "fuzz_targets/load_document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "render_page"
+path = "fuzz_targets/render_page.rs"
+test = false
+doc = false
+bench = false
+
+# This package is its own workspace root; the parent workspace's
+# `exclude = ["fuzz"]` keeps normal builds and packaging away from it.
+[workspace]
+
+# Debug info in release keeps libFuzzer backtraces symbolized.
+[profile.release]
+debug = 1

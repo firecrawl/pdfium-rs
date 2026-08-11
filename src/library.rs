@@ -88,8 +88,10 @@ impl Pdfium {
     ///    [`platform_library_name`]). If set but unloadable, this is a hard
     ///    error — no silent fallback.
     /// 2. The directory containing the current executable.
-    /// 3. `./target/pdfium/<platform>/lib` (and `bin` on Windows) — the
-    ///    layout produced by `cargo xtask fetch-pdfium`.
+    /// 3. `./target/pdfium/<platform>/lib` then `.../bin` (the archives use
+    ///    `lib` everywhere except Windows, which uses `bin`; both are
+    ///    probed on every platform) — the layout produced by
+    ///    `cargo xtask fetch-pdfium`.
     /// 4. The system loader's default search path, by bare library name.
     ///
     /// If PDFium is already loaded, returns the existing instance without
@@ -105,7 +107,11 @@ impl Pdfium {
         // 1. Environment variable — explicit configuration never falls through.
         if let Some(raw) = std::env::var_os(PDFIUM_LIB_PATH_ENV) {
             let p = PathBuf::from(&raw);
-            let file = if p.is_dir() { p.join(platform_library_name()) } else { p };
+            let file = if p.is_dir() {
+                p.join(platform_library_name())
+            } else {
+                p
+            };
             return init_from_file(&file);
         }
 
@@ -221,7 +227,10 @@ fn init_from_file(path: &Path) -> Result<Pdfium> {
         }));
     }
     let lib = unsafe { libloading::Library::new(path) }.map_err(|source| {
-        Error::Load(LoadError::OpenFailed { path: path.to_path_buf(), source })
+        Error::Load(LoadError::OpenFailed {
+            path: path.to_path_buf(),
+            source,
+        })
     })?;
     init_from_library(lib, Some(path.to_path_buf()))
 }
@@ -250,9 +259,15 @@ fn init_from_library(lib: libloading::Library, loaded_from: Option<PathBuf>) -> 
     // "use the default paths".
     unsafe { bindings.FPDF_InitLibraryWithConfig(&config) };
 
-    let inner = LibraryInner { bindings, ffi_lock: Mutex::new(()), loaded_from };
+    let inner = LibraryInner {
+        bindings,
+        ffi_lock: Mutex::new(()),
+        loaded_from,
+    };
     // Cannot race: INIT_LOCK is held. `set` only fails if already set,
     // which the callers ruled out.
     let _ = INSTANCE.set(inner);
-    Ok(Pdfium { inner: INSTANCE.get().expect("instance just set") })
+    Ok(Pdfium {
+        inner: INSTANCE.get().expect("instance just set"),
+    })
 }

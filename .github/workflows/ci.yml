@@ -1,0 +1,119 @@
+# Continuous integration for firecrawl-pdfium.
+#
+# Every job that executes code first runs `cargo xtask fetch-pdfium`, which
+# downloads and sha256-verifies the PDFium build pinned in pdfium.lock.json,
+# so CI always tests against the exact binary a release would ship. Jobs that
+# only compile (lint, msrv, publish-dry-run) need no native library at all —
+# the crate binds PDFium at runtime, never at link time.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # One shell everywhere, including Windows: fail-fast pipefail semantics.
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # The tier-1 platform matrix from docs/DESIGN.md:
+        #   ubuntu-latest    -> linux-x64
+        #   ubuntu-24.04-arm -> linux-arm64 (GA runner for public repos)
+        #   macos-14         -> mac-arm64
+        #   macos-15-intel   -> mac-x64 (macos-13, the previous Intel image,
+        #                       was retired from hosted runners)
+        #   windows-latest   -> win-x64
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Fetch pinned PDFium binary
+        run: cargo xtask fetch-pdfium
+      - name: Test
+        # --all-targets also compiles benches and examples, so bench rot is
+        # caught on every push without running criterion.
+        run: cargo test --locked --all-targets
+      - name: Consumer smoke (run examples headlessly)
+        # Run two examples exactly as a consumer would: no configuration,
+        # library discovered via the documented ./target/pdfium chain.
+        run: |
+          cargo run --locked --example render_page
+          cargo run --locked --example coordinates
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: clippy
+        # Compiling (not running) tests/benches/examples needs no native
+        # library, so no fetch here.
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  msrv:
+    name: msrv (1.77)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.77
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo check on the MSRV
+        # Deliberately plain `cargo check` (not --all-targets): dev-deps
+        # (criterion, png) do not track our 1.77 MSRV and may fail to build
+        # on it. The MSRV promise covers the published library, which has a
+        # single dependency (libloading); this checks exactly that surface.
+        run: cargo check --locked -p firecrawl-pdfium
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build docs (warnings are errors)
+        run: cargo doc --locked --no-deps -p firecrawl-pdfium
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: Fetch pinned PDFium binary
+        # Doc tests execute (except `no_run` ones); give them the library.
+        run: cargo xtask fetch-pdfium
+      - name: Doc tests
+        run: cargo test --locked --doc
+
+  publish-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo publish --dry-run
+        # Keeps the crates.io packaging path green on every push. This works
+        # even before the crate's first publish because this is a
+        # single-publishable-crate workspace (verified with cargo 1.95; see
+        # docs/DESIGN.md "Crate name and organization").
+        run: cargo publish --dry-run -p firecrawl-pdfium

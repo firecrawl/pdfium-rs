@@ -69,7 +69,12 @@ pub struct PageRect {
 impl PageRect {
     /// Creates a page-space rectangle from its four edges.
     pub fn new(left: f64, bottom: f64, right: f64, top: f64) -> Self {
-        Self { left, bottom, right, top }
+        Self {
+            left,
+            bottom,
+            right,
+            top,
+        }
     }
 
     /// Horizontal extent (`right - left`).
@@ -109,7 +114,12 @@ pub struct PixelRect {
 impl PixelRect {
     /// Creates a pixel-space rectangle from top-left corner and size.
     pub fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 }
 
@@ -138,9 +148,9 @@ impl PageTransform {
     pub(crate) fn from_corners(
         pixel_width: u32,
         pixel_height: u32,
-        origin: (f64, f64),  // page coords of device (0, 0)
-        x_axis: (f64, f64),  // page coords of device (w, 0)
-        y_axis: (f64, f64),  // page coords of device (0, h)
+        origin: (f64, f64), // page coords of device (0, 0)
+        x_axis: (f64, f64), // page coords of device (w, 0)
+        y_axis: (f64, f64), // page coords of device (0, h)
     ) -> Option<PageTransform> {
         let w = f64::from(pixel_width);
         let h = f64::from(pixel_height);

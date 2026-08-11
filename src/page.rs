@@ -1,7 +1,7 @@
 //! Pages: metrics, rotation, and access to rendering/text.
 
-use crate::error::{Error, Result};
 use crate::document::PdfDocument;
+use crate::error::{Error, Result};
 use crate::sys;
 
 /// Page dimensions in points (1/72 inch), after applying the page's

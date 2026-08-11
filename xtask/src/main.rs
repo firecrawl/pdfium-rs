@@ -58,9 +58,95 @@ fn run() -> Result<(), String> {
     match it.next() {
         Some("fetch-pdfium") => fetch_pdfium(&root, &args[1..]),
         Some("repackage") => repackage(&root, &args[1..]),
-        Some(other) => Err(format!("unknown subcommand `{other}`; see xtask/src/main.rs")),
-        None => Err("usage: cargo xtask <fetch-pdfium|repackage> [options]".into()),
+        Some("pin") => pin(&root, &args[1..]),
+        Some(other) => Err(format!(
+            "unknown subcommand `{other}`; see xtask/src/main.rs"
+        )),
+        None => Err("usage: cargo xtask <fetch-pdfium|repackage|pin> [options]".into()),
     }
+}
+
+/// `pin chromium/NNNN` — re-pin pdfium.lock.json to a new upstream release:
+/// downloads every pinned platform's asset from the new tag, records fresh
+/// sha256 checksums, reads the archive's VERSION metadata, and rewrites the
+/// lock file. Review the diff, run the test suite, then commit.
+fn pin(root: &Path, args: &[String]) -> Result<(), String> {
+    let tag = args
+        .first()
+        .ok_or_else(|| "usage: cargo xtask pin chromium/NNNN".to_string())?;
+    if !tag.starts_with("chromium/") || tag.len() <= "chromium/".len() {
+        return Err(format!("expected a tag like chromium/7988, got `{tag}`"));
+    }
+
+    let lock = load_lock(root)?;
+    let base_url = format!("https://github.com/bblanchon/pdfium-binaries/releases/download/{tag}");
+    let work = root.join("target").join("pin");
+    fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+
+    let mut platforms = serde_json::Map::new();
+    let mut pdfium_version = String::new();
+    for (slug, old_pin) in &lock.platforms {
+        let url = format!("{base_url}/{}", old_pin.asset);
+        let archive = work.join(&old_pin.asset);
+        eprintln!("downloading {url}");
+        let status = Command::new("curl")
+            .args(["-fsSL", "--retry", "3", "--retry-delay", "2", "-o"])
+            .arg(&archive)
+            .arg(&url)
+            .status()
+            .map_err(|e| format!("running curl: {e}"))?;
+        if !status.success() {
+            return Err(format!("curl failed for {url} — does release {tag} exist?"));
+        }
+        let sha = sha256_file(&archive)?;
+        eprintln!("  {slug}: {sha}");
+        platforms.insert(
+            slug.clone(),
+            serde_json::json!({ "asset": old_pin.asset, "sha256": sha }),
+        );
+
+        if pdfium_version.is_empty() {
+            let stage = work.join("inspect");
+            extract(&archive, &stage)?;
+            let version_file = stage.join("VERSION");
+            let raw = fs::read_to_string(&version_file)
+                .map_err(|e| format!("reading {}: {e}", version_file.display()))?;
+            let field = |k: &str| {
+                raw.lines()
+                    .find_map(|l| l.strip_prefix(&format!("{k}=")))
+                    .unwrap_or("0")
+                    .trim()
+                    .to_string()
+            };
+            pdfium_version = format!(
+                "{}.{}.{}.{}",
+                field("MAJOR"),
+                field("MINOR"),
+                field("BUILD"),
+                field("PATCH")
+            );
+        }
+    }
+
+    let new_lock = serde_json::json!({
+        "comment": "Pinned upstream PDFium binaries. Update with: cargo xtask pin chromium/NNNN. Checksums are recorded at pin time because upstream publishes none; every download is verified against them.",
+        "upstream": "bblanchon/pdfium-binaries",
+        "release": tag,
+        "pdfium_version": pdfium_version,
+        "base_url": base_url,
+        "platforms": platforms,
+    });
+    let path = root.join("pdfium.lock.json");
+    fs::write(
+        &path,
+        serde_json::to_string_pretty(&new_lock).expect("static json") + "\n",
+    )
+    .map_err(|e| e.to_string())?;
+    eprintln!(
+        "pinned {tag} (PDFium {pdfium_version}) -> {}\nNext: cargo xtask fetch-pdfium && cargo test, then commit.",
+        path.display()
+    );
+    Ok(())
 }
 
 fn repo_root() -> Result<PathBuf, String> {
@@ -103,7 +189,11 @@ fn parse_platforms(lock: &Lock, args: &[String]) -> Result<Vec<String>, String> 
                 if !lock.platforms.contains_key(slug) {
                     return Err(format!(
                         "unknown platform `{slug}`; pinned: {}",
-                        lock.platforms.keys().cloned().collect::<Vec<_>>().join(", ")
+                        lock.platforms
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ));
                 }
                 platforms.push(slug.clone());
@@ -235,7 +325,8 @@ fn repackage(root: &Path, args: &[String]) -> Result<(), String> {
         match args[i].as_str() {
             "--out" => {
                 out_dir = PathBuf::from(
-                    args.get(i + 1).ok_or_else(|| "--out requires a value".to_string())?,
+                    args.get(i + 1)
+                        .ok_or_else(|| "--out requires a value".to_string())?,
                 );
                 i += 2;
             }

@@ -43,7 +43,11 @@ impl fmt::Display for LoadError {
                 )
             }
             LoadError::OpenFailed { path, source } => {
-                write!(f, "failed to open PDFium library at {}: {source}", path.display())
+                write!(
+                    f,
+                    "failed to open PDFium library at {}: {source}",
+                    path.display()
+                )
             }
             LoadError::MissingSymbol(e) => write!(f, "{e}"),
         }
@@ -137,7 +141,10 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Load(e) => write!(f, "{e}"),
-            Error::AlreadyLoaded { loaded_from, requested } => match loaded_from {
+            Error::AlreadyLoaded {
+                loaded_from,
+                requested,
+            } => match loaded_from {
                 Some(p) => write!(
                     f,
                     "PDFium is already loaded from {} (requested {}); a process keeps \
@@ -163,7 +170,10 @@ impl fmt::Display for Error {
             Error::InvalidPdf => write!(f, "data is not a valid PDF document"),
             Error::Pdfium { code } => write!(f, "PDFium error code {code}"),
             Error::PageIndexOutOfBounds { index, count } => {
-                write!(f, "page index {index} out of bounds (document has {count} pages)")
+                write!(
+                    f,
+                    "page index {index} out of bounds (document has {count} pages)"
+                )
             }
             Error::PageLoadFailed { index } => write!(f, "PDFium failed to load page {index}"),
             Error::TextLoadFailed { index } => {
@@ -172,7 +182,10 @@ impl fmt::Display for Error {
             Error::FormInitFailed => {
                 write!(f, "PDFium failed to initialize the form-fill environment")
             }
-            Error::RenderTooLarge { required_bytes, limit } => write!(
+            Error::RenderTooLarge {
+                required_bytes,
+                limit,
+            } => write!(
                 f,
                 "rendered output would require {required_bytes} bytes, exceeding the \
                  configured limit of {limit} bytes"

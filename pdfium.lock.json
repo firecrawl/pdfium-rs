@@ -1,5 +1,5 @@
 {
-  "comment": "Pinned upstream PDFium binaries. Update with: cargo xtask pin <chromium/NNNN>. Checksums are recorded at pin time because upstream publishes none; every download is verified against them.",
+  "comment": "Pinned upstream PDFium binaries. Update with: cargo xtask pin chromium/NNNN. Checksums are recorded at pin time because upstream publishes none; every download is verified against them.",
   "upstream": "bblanchon/pdfium-binaries",
   "release": "chromium/7988",
   "pdfium_version": "153.0.7988.0",

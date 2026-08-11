@@ -10,8 +10,11 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use firecrawl_pdfium::{Pdfium, PixelFormat, RenderConfig};
 
 fn fixture(name: &str) -> Vec<u8> {
-    std::fs::read(format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR")))
-        .unwrap_or_else(|e| panic!("fixture {name}: {e}"))
+    std::fs::read(format!(
+        "{}/tests/fixtures/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap_or_else(|e| panic!("fixture {name}: {e}"))
 }
 
 fn render_benches(c: &mut Criterion) {
@@ -34,9 +37,13 @@ fn render_benches(c: &mut Criterion) {
         let t = page.transform_for(&config).expect("transform");
         let bytes = u64::from(t.pixel_width()) * u64::from(t.pixel_height()) * 4;
         group.throughput(Throughput::Bytes(bytes));
-        group.bench_with_input(BenchmarkId::new("bgra8_dpi", dpi as u32), &config, |b, cfg| {
-            b.iter(|| page.render(cfg).expect("render"));
-        });
+        group.bench_with_input(
+            BenchmarkId::new("bgra8_dpi", dpi as u32),
+            &config,
+            |b, cfg| {
+                b.iter(|| page.render(cfg).expect("render"));
+            },
+        );
     }
     group.finish();
 

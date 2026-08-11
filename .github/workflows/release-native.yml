@@ -1,0 +1,188 @@
+# Native binary releases: repackage the pinned, checksum-verified upstream
+# PDFium archives into firecrawl-pdfium GitHub release assets.
+#
+# Triggered by pushing a tag like `native-v7988` (the number tracks the
+# pinned upstream chromium/NNNN build), or manually via workflow_dispatch
+# for pipeline testing (draft release by default; see docs/RELEASING.md).
+#
+# What each asset carries (produced by `cargo xtask repackage`):
+#   - the upstream archive contents verbatim (lib/, include/, licenses/,
+#     LICENSE, VERSION, args.gn) — this satisfies third-party notices,
+#   - PROVENANCE.json linking back to the exact upstream release, asset,
+#     and sha256 recorded in pdfium.lock.json,
+#   - a SHA256SUMS file covering every archive,
+# plus, from this workflow: GitHub build-provenance attestations and one
+# SPDX SBOM per archive.
+
+name: Release native binaries
+
+run-name: Release native binaries (${{ inputs.tag || github.ref_name }})
+
+on:
+  push:
+    tags: ["native-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to (re)release, e.g. native-v7988"
+        required: true
+        type: string
+      draft:
+        description: "Create the GitHub release as a draft (pipeline test)"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Build-provenance attestation (OIDC-signed).
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # For dispatch runs, build from the named tag (not the branch the
+          # workflow was dispatched on) so pdfium.lock.json matches the tag.
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Repackage pinned upstream archives
+        # Downloads every platform archive, verifies each sha256 against
+        # pdfium.lock.json, and writes dist/firecrawl-pdfium-<slug>.tgz plus
+        # dist/SHA256SUMS. Refuses to proceed on any checksum mismatch.
+        run: cargo xtask repackage --all --tag "$TAG" --out dist
+      - uses: actions/upload-artifact@v5
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+      - name: Attest build provenance
+        # Consumers verify with:
+        #   gh attestation verify firecrawl-pdfium-<slug>.tgz --repo firecrawl/pdfium-rs
+        # This is the strong supply-chain link for these archives; the SBOMs
+        # below are a complement, not the anchor (see the sbom job).
+        uses: actions/attest@v4
+        with:
+          subject-path: "dist/*.tgz"
+
+  sbom:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      # anchore/sbom-action wants actions:read, and contents:write for its
+      # auto-upload path (a no-op unless a release triggered the run; our
+      # own idempotent upload in the release job is what actually attaches
+      # SBOMs on tag pushes).
+      contents: write
+      actions: read
+    strategy:
+      matrix:
+        # Keep in sync with the platforms pinned in pdfium.lock.json.
+        slug: [mac-arm64, mac-x64, linux-x64, linux-arm64, win-x64]
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist
+      - name: Generate SPDX SBOM for ${{ matrix.slug }}
+        # Honest limitation: syft over an archive of opaque shared libraries
+        # is thin — it inventories files, not the 15 statically-linked
+        # third-party components inside libpdfium. The real upstream linkage
+        # is the PROVENANCE.json inside each archive plus the build
+        # provenance attestation from the build job.
+        uses: anchore/sbom-action@v0
+        with:
+          file: dist/firecrawl-pdfium-${{ matrix.slug }}.tgz
+          format: spdx-json
+          output-file: firecrawl-pdfium-${{ matrix.slug }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: true
+      - uses: actions/upload-artifact@v5
+        with:
+          name: sbom-${{ matrix.slug }}
+          path: firecrawl-pdfium-${{ matrix.slug }}.spdx.json
+          if-no-files-found: error
+
+  release:
+    needs: [build, sbom]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: sbom-*
+          path: sbom
+          merge-multiple: true
+      - name: Compose release notes from pdfium.lock.json
+        run: |
+          lock=pdfium.lock.json
+          upstream_tag=$(jq -r .release "$lock")
+          upstream_url="https://github.com/bblanchon/pdfium-binaries/releases/tag/${upstream_tag//\//%2F}"
+          {
+            echo "Repackaged, checksum-verified PDFium native binaries for \`firecrawl-pdfium\`."
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Release tag | \`$TAG\` |"
+            echo "| PDFium version | \`$(jq -r .pdfium_version "$lock")\` |"
+            echo "| Upstream release | [\`$upstream_tag\`]($upstream_url) |"
+            echo
+            echo "Each archive contains the upstream build verbatim (\`lib/\`, \`include/\`,"
+            echo "\`licenses/\`, \`LICENSE\`, \`VERSION\`, \`args.gn\`) plus \`PROVENANCE.json\`"
+            echo "recording the upstream asset and sha256 it was repackaged from."
+            echo
+            echo "### Upstream archive sha256s (from \`pdfium.lock.json\`, verified at repackage time)"
+            echo
+            echo "| Platform | Upstream asset | sha256 |"
+            echo "|---|---|---|"
+            jq -r '.platforms | to_entries[] | "| \(.key) | `\(.value.asset)` | `\(.value.sha256)` |"' "$lock"
+            echo
+            echo "### Verify what you download"
+            echo
+            echo '```sh'
+            echo "# 1. Checksums (SHA256SUMS is itself an asset of this release):"
+            echo "shasum -a 256 -c SHA256SUMS --ignore-missing"
+            echo
+            echo "# 2. Build provenance (proves the asset was built by this repository's"
+            echo "#    release workflow from this tag):"
+            echo "gh attestation verify firecrawl-pdfium-<platform>.tgz --repo firecrawl/pdfium-rs"
+            echo '```'
+          } > notes.md
+          cat notes.md
+      - name: Create release if missing (idempotent)
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists; will only (re)upload assets"
+          else
+            draft_flag=""
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.draft }}" = "true" ]; then
+              draft_flag="--draft"
+            fi
+            gh release create "$TAG" --verify-tag $draft_flag \
+              --title "PDFium native binaries $TAG" \
+              --notes-file notes.md
+          fi
+      - name: Upload assets (idempotent)
+        run: gh release upload "$TAG" dist/* sbom/* --clobber

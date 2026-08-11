@@ -19,7 +19,7 @@ on every run, so `git diff` proves fixtures match the generator.
 | `header_only.pdf` | just `%PDF-1.7\n` |
 | `truncated.pdf` | first third of `valid.pdf` |
 | `garbage.bin` | 4 KiB of deterministic non-PDF bytes |
-| `bad_xref.pdf` | `valid.pdf` with the `startxref` keyword corrupted |
+| `bad_xref.pdf` | `valid.pdf` with the `startxref` keyword corrupted — note that PDFium's lenient parser *recovers* this one by reconstructing the xref table, so it opens successfully; tests assert that real behavior |
 
 ## 2. Generated once with mutool (`tools/gen_encrypted_fixtures.sh`)
 

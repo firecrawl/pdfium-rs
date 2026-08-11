@@ -70,7 +70,12 @@ impl Color {
     pub const BLACK: Color = Color::rgb(0x00, 0x00, 0x00);
     /// Fully transparent — use with an alpha [`PixelFormat`] for
     /// compositing.
-    pub const TRANSPARENT: Color = Color { r: 0, g: 0, b: 0, a: 0 };
+    pub const TRANSPARENT: Color = Color {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
 
     /// An opaque color from RGB components.
     pub const fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -283,7 +288,9 @@ impl RenderConfig {
 
         let scaled = |scale: f64| -> Result<(u32, u32)> {
             if !scale.is_finite() || scale <= 0.0 {
-                return Err(Error::InvalidConfig(format!("scale must be positive, got {scale}")));
+                return Err(Error::InvalidConfig(format!(
+                    "scale must be positive, got {scale}"
+                )));
             }
             Ok((
                 (pw * scale).round().max(1.0) as u32,
@@ -313,17 +320,22 @@ impl RenderConfig {
             }
         };
 
-        // PDFium's bitmap API takes i32 dimensions and strides.
-        let bpp = self.format.bytes_per_pixel() as u64;
-        if w > i32::MAX as u32 || h > i32::MAX as u32 || u64::from(w) * bpp > i32::MAX as u64 {
+        // PDFium's bitmap API takes i32 dimensions and strides. The byte
+        // requirement is computed in u128: the saturating f64->u32 casts
+        // above can leave w and h at u32::MAX, whose product times bpp
+        // overflows u64.
+        let bpp = u128::from(self.format.bytes_per_pixel() as u64);
+        let required = u128::from(w) * u128::from(h) * bpp;
+        let required_bytes = u64::try_from(required).unwrap_or(u64::MAX);
+        let too_large = w > i32::MAX as u32
+            || h > i32::MAX as u32
+            || u128::from(w) * bpp > i32::MAX as u128
+            || required > u128::from(self.max_output_bytes);
+        if too_large {
             return Err(Error::RenderTooLarge {
-                required_bytes: u64::from(w) * u64::from(h) * bpp,
+                required_bytes,
                 limit: self.max_output_bytes,
             });
-        }
-        let required = u64::from(w) * u64::from(h) * bpp;
-        if required > self.max_output_bytes {
-            return Err(Error::RenderTooLarge { required_bytes: required, limit: self.max_output_bytes });
         }
         Ok((w, h))
     }
@@ -413,7 +425,11 @@ impl RenderedPage {
     ///
     /// Panics if `y >= height`.
     pub fn row(&self, y: u32) -> &[u8] {
-        assert!(y < self.height, "row {y} out of bounds (height {})", self.height);
+        assert!(
+            y < self.height,
+            "row {y} out of bounds (height {})",
+            self.height
+        );
         let start = y as usize * self.stride;
         &self.data[start..start + self.width as usize * self.format.bytes_per_pixel()]
     }
@@ -424,7 +440,11 @@ impl RenderedPage {
     ///
     /// Panics if out of bounds.
     pub fn pixel(&self, x: u32, y: u32) -> &[u8] {
-        assert!(x < self.width, "column {x} out of bounds (width {})", self.width);
+        assert!(
+            x < self.width,
+            "column {x} out of bounds (width {})",
+            self.width
+        );
         let bpp = self.format.bytes_per_pixel();
         let row = self.row(y);
         &row[x as usize * bpp..(x as usize + 1) * bpp]
@@ -503,7 +523,9 @@ impl<'doc> PdfPage<'doc> {
                 )
             };
             if bitmap.is_null() {
-                return Err(Error::RenderFailed { reason: "FPDFBitmap_CreateEx returned null" });
+                return Err(Error::RenderFailed {
+                    reason: "FPDFBitmap_CreateEx returned null",
+                });
             }
 
             // SAFETY: live bitmap + page handles; geometry matches the
@@ -602,15 +624,18 @@ fn derive_transform(
         if ok != 0 {
             Ok((px, py))
         } else {
-            Err(Error::RenderFailed { reason: "FPDF_DeviceToPage failed" })
+            Err(Error::RenderFailed {
+                reason: "FPDF_DeviceToPage failed",
+            })
         }
     };
 
     let origin = corner(0, 0)?;
     let x_axis = corner(width as c_int, 0)?;
     let y_axis = corner(0, height as c_int)?;
-    PageTransform::from_corners(width, height, origin, x_axis, y_axis)
-        .ok_or(Error::RenderFailed { reason: "degenerate page transform" })
+    PageTransform::from_corners(width, height, origin, x_axis, y_axis).ok_or(Error::RenderFailed {
+        reason: "degenerate page transform",
+    })
 }
 
 /// Pre-fills the buffer with the background color encoded for `format`.
@@ -636,21 +661,42 @@ mod tests {
     use crate::page::PageSize;
 
     fn dims(cfg: &RenderConfig, w: f32, h: f32) -> Result<(u32, u32)> {
-        cfg.resolve_dimensions(PageSize { width: w, height: h })
+        cfg.resolve_dimensions(PageSize {
+            width: w,
+            height: h,
+        })
     }
 
     #[test]
     fn scale_and_dpi() {
-        assert_eq!(dims(&RenderConfig::new().scale(2.0), 200.0, 100.0).unwrap(), (400, 200));
-        assert_eq!(dims(&RenderConfig::new().dpi(144.0), 200.0, 100.0).unwrap(), (400, 200));
+        assert_eq!(
+            dims(&RenderConfig::new().scale(2.0), 200.0, 100.0).unwrap(),
+            (400, 200)
+        );
+        assert_eq!(
+            dims(&RenderConfig::new().dpi(144.0), 200.0, 100.0).unwrap(),
+            (400, 200)
+        );
     }
 
     #[test]
     fn fixed_axes_preserve_aspect() {
-        assert_eq!(dims(&RenderConfig::new().width(400), 200.0, 100.0).unwrap(), (400, 200));
-        assert_eq!(dims(&RenderConfig::new().height(50), 200.0, 100.0).unwrap(), (100, 50));
-        assert_eq!(dims(&RenderConfig::new().fit(1000, 300), 200.0, 100.0).unwrap(), (600, 300));
-        assert_eq!(dims(&RenderConfig::new().exact(37, 91), 200.0, 100.0).unwrap(), (37, 91));
+        assert_eq!(
+            dims(&RenderConfig::new().width(400), 200.0, 100.0).unwrap(),
+            (400, 200)
+        );
+        assert_eq!(
+            dims(&RenderConfig::new().height(50), 200.0, 100.0).unwrap(),
+            (100, 50)
+        );
+        assert_eq!(
+            dims(&RenderConfig::new().fit(1000, 300), 200.0, 100.0).unwrap(),
+            (600, 300)
+        );
+        assert_eq!(
+            dims(&RenderConfig::new().exact(37, 91), 200.0, 100.0).unwrap(),
+            (37, 91)
+        );
     }
 
     #[test]
@@ -666,7 +712,10 @@ mod tests {
     fn size_cap_enforced() {
         let cfg = RenderConfig::new().scale(100.0).max_output_bytes(1024);
         match dims(&cfg, 200.0, 100.0) {
-            Err(Error::RenderTooLarge { required_bytes, limit }) => {
+            Err(Error::RenderTooLarge {
+                required_bytes,
+                limit,
+            }) => {
                 assert_eq!(limit, 1024);
                 assert!(required_bytes > 1024);
             }
