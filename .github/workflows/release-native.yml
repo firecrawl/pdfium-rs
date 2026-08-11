@@ -62,7 +62,7 @@ jobs:
         # pdfium.lock.json, and writes dist/firecrawl-pdfium-<slug>.tgz plus
         # dist/SHA256SUMS. Refuses to proceed on any checksum mismatch.
         run: cargo xtask repackage --all --tag "$TAG" --out dist
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -111,7 +111,7 @@ jobs:
           output-file: firecrawl-pdfium-${{ matrix.slug }}.spdx.json
           upload-artifact: false
           upload-release-assets: false
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ matrix.slug }}
           path: firecrawl-pdfium-${{ matrix.slug }}.spdx.json
