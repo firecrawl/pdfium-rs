@@ -115,9 +115,9 @@ one-time, bounded leak, documented in the API.
 ## Thread safety
 
 **PDFium is not thread-safe** (upstream's own guidance: serialize all calls).
-The incumbent crate's optional `thread_safe` feature was found unsound in the
-wild (ajrcarey/pdfium-render#262: `unsafe impl Send + Sync` without actual
-serialization of every path). We treat this as the cautionary tale:
+Ecosystem history shows how easy this is to get wrong: wrappers have shipped
+`unsafe impl Send + Sync` without actually serializing every call path,
+which is unsound. We treat that as the cautionary tale:
 
 - Every FFI call in the safe layer goes through **one global
   `Mutex`** (`ffi_lock`). There is no unlocked path; the raw `sys` table is
@@ -221,8 +221,8 @@ is `#[non_exhaustive]`.
 
 Upstream: **`bblanchon/pdfium-binaries`** (weekly automated builds since
 2017, widest platform matrix, consistent archive layout, sigstore
-attestations; it is what the whole ecosystem — pdfium-render, pypdfium2,
-go-pdfium — already targets). Default builds have `pdf_enable_v8 = false`,
+attestations; it is what PDFium bindings across languages already
+target). Default builds have `pdf_enable_v8 = false`,
 `pdf_enable_xfa = false`, which matches our non-goals.
 
 - The pinned release is recorded in **one place**, `pdfium.lock.json`

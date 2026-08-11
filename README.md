@@ -36,16 +36,12 @@ text, and draw form fields — safely usable from concurrent code.
   checksums, license texts, provenance metadata, and GitHub build
   attestations.
 
-**When to use [pdfium-render] instead:** pdfium-render is an actively
-maintained, much larger binding (MIT/Apache-2.0) that also covers PDF
-*editing* — creating and modifying pages, objects, annotations, form field
-values, signatures, and more. If you need to change PDFs rather than read
-and rasterize them, use pdfium-render; it is good prior art and we link it
-with respect. This crate is for teams that want a smaller audited surface,
-strictly serialized FFI, and a verified binary supply chain for
-read/render/extract workloads.
-
-[pdfium-render]: https://crates.io/crates/pdfium-render
+**Scope note:** this crate deliberately does *not* cover PDF editing —
+creating or modifying pages, objects, annotations, form field values, or
+signatures. It is for teams that want a smaller audited surface, strictly
+serialized FFI, and a verified binary supply chain for
+read/render/extract workloads; if you need to change PDFs, other bindings
+in the ecosystem cover that ground.
 
 ## Install
 
@@ -275,5 +271,5 @@ conditions.
   Chromium team, for the engine itself.
 - [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries),
   whose weekly builds this crate pins and redistributes.
-- [pdfium-render](https://crates.io/crates/pdfium-render), whose years of
-  prior art on binding PDFium from Rust informed this design.
+- The wider ecosystem of PDFium bindings across languages, whose years of
+  prior art informed this design.
