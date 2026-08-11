@@ -33,7 +33,7 @@ jobs:
     # Failures here are real signal (a crash or a broken target), never soft.
     continue-on-error: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
