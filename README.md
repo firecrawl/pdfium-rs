@@ -188,6 +188,32 @@ saturates hardware without any unsound shortcuts.
 Static linking is not yet available (see below); the crate always loads a
 shared library at runtime.
 
+## Performance
+
+Reference numbers from real-world documents, measured 2026-08-10 on Apple
+Silicon (macOS arm64) against the pinned PDFium build (`chromium/7988`).
+Each figure is the median wall time to open a page and render it to an
+**owned RGBA buffer** at 200 DPI (page open included, document load
+excluded), best of two serial passes, single-threaded:
+
+| Document class | Pages timed | Median ms/page | Peak RSS |
+|---|---|---|---|
+| Light text digest | 6 | 4.8 | 40 MB |
+| Text-dense book pages | 25 | 4.9 | 39 MB |
+| Mixed content, government forms | 25 | 10.0 | 135 MB |
+| Image-heavy brochure | 13 | 40.2 | 91 MB |
+| Image-heavy brochure @ 300 DPI | 13 | 46.0 | 120 MB |
+
+Document load itself is sub-millisecond to a few milliseconds for files in
+the 100 KB–7 MB range. Three-channel output (`PixelFormat::Bgr8`) performs
+within ±5% of RGBA. Remember the concurrency model when extrapolating:
+renders serialize within a process, so per-process throughput is
+single-core — scale with processes.
+
+Reproduce locally with `cargo xtask fetch-pdfium && cargo bench --bench
+render` (criterion, fixture-based) or an equivalent harness over your own
+corpus; absolute numbers vary with hardware and document complexity.
+
 ## Feature status and limitations
 
 Implemented and tested: rendering (scale / DPI / fixed-dimension / fit
