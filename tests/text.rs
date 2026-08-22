@@ -163,6 +163,53 @@ fn vendored_hello_world_extracts() {
     assert!(!text.is_empty());
 }
 
+/// PDFium synthesizes the CRLF that separates the vendored fixture's two
+/// text objects. The indices are pinned against PDFium's own
+/// `FPDFTextEmbedderTest.IsGenerated` (fpdfsdk/fpdf_text_embeddertest.cpp),
+/// which asserts the same values on this exact file. If a future PDFium
+/// changes what it synthesizes, this test will flag the behavior change.
+#[test]
+fn generated_chars_are_flagged() {
+    let p = pdfium();
+    let doc = p
+        .load_document(fixture("pdfium/hello_world.pdf"), None)
+        .expect("open");
+    let text = doc.page(0).expect("page").text().expect("text");
+
+    assert_eq!(text.text(), "Hello, world!\r\nGoodbye, world!");
+    assert_eq!(text.len(), 30);
+
+    let chars = text.chars();
+    assert_eq!(chars[13].unicode, Some('\r'));
+    assert_eq!(chars[14].unicode, Some('\n'));
+    // Only the separator is synthesized; everything else comes from the two
+    // text objects, including the literal space at index 6.
+    for (i, c) in chars.iter().enumerate() {
+        let synthesized = i == 13 || i == 14;
+        assert_eq!(
+            c.generated,
+            Some(synthesized),
+            "char {i} {:?}: expected generated == {synthesized}",
+            c.unicode
+        );
+    }
+}
+
+/// A single-`Tj` page has nothing for PDFium to synthesize, so no character
+/// is generated — including the space, which is real content here.
+#[test]
+fn single_line_text_has_no_generated_chars() {
+    let text = hello_text();
+    for (i, c) in text.chars().iter().enumerate() {
+        assert_eq!(
+            c.generated,
+            Some(false),
+            "char {i} {:?} comes from the content stream",
+            c.unicode
+        );
+    }
+}
+
 /// The text-extraction character ceiling rejects before allocating, with a
 /// typed error carrying both numbers; a generous ceiling still extracts.
 #[test]

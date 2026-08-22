@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Per-character provenance on `PageChar::generated`
+  (`FPDFText_IsGenerated`): whether PDFium synthesized the character while
+  reconstructing reading order — the inter-object spaces and line breaks
+  it inserts — rather than reading it from page content. `None` when
+  PDFium could not determine it, so an error is never reported as "not
+  generated".
+
+### Changed
+
+- **Breaking**: `PageChar` gained the `generated` field, which breaks
+  downstream struct literals and exhaustive destructuring patterns
+  (0.1.x -> 0.2.0).
+- The required symbol set grew by `FPDFText_IsGenerated`, making it the
+  newest symbol the crate binds. It landed upstream in the
+  ~`chromium/5414` era, older than the ~`chromium/5845` floor already
+  documented, so the oldest expected-working build does not move.
+
 ## [0.1.0] - 2026-08-10
 
 Initial release.

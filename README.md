@@ -215,9 +215,9 @@ corpus; absolute numbers vary with hardware and document complexity.
 Implemented and tested: rendering (scale / DPI / fixed-dimension / fit
 sizing; BGRA, RGBA, BGR, grayscale outputs; background colors; extra
 rotation; anti-aliasing toggles; output-size limits), text extraction with
-per-character geometry, AcroForm field *display*, pixel/page coordinate
-transforms, document metadata, permissions, page labels, and typed errors
-for encrypted/malformed input.
+per-character geometry and generated-character provenance, AcroForm field
+*display*, pixel/page coordinate transforms, document metadata,
+permissions, page labels, and typed errors for encrypted/malformed input.
 
 Deliberately deferred (see the [design document](docs/DESIGN.md) for the
 list and rationale): PDF editing or saving, XFA forms, JavaScript, form
