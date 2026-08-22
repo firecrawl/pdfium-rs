@@ -1,5 +1,7 @@
 //! Text extraction with per-character geometry.
 
+use std::ffi::c_int;
+
 use crate::coords::{PagePoint, PageRect};
 use crate::error::{Error, Result};
 use crate::page::PdfPage;
@@ -14,6 +16,12 @@ pub struct PageChar {
     pub unicode: Option<char>,
     /// The raw code from `FPDFText_GetUnicode`.
     pub code: u32,
+    /// Whether PDFium synthesized this character — the inter-object spaces
+    /// and line breaks it inserts so [`PageText::text`] reads in reading
+    /// order — rather than reading it from page content. No glyph backs a
+    /// generated character, so its boxes are not glyph boxes. `None` when
+    /// `FPDFText_IsGenerated` could not determine it.
+    pub generated: Option<bool>,
     /// Tight glyph bounding box in page space.
     pub bounds: PageRect,
     /// Loose bounding box (full advance/line metrics) in page space —
@@ -65,7 +73,7 @@ impl PageText {
 /// Default ceiling for [`PdfPage::text`]: one million characters. Real
 /// pages hold a few thousand; the ceiling exists because a small hostile
 /// PDF can claim an enormous character count and this crate allocates
-/// roughly 90 bytes per character during extraction.
+/// roughly 96 bytes per character during extraction.
 pub const DEFAULT_MAX_TEXT_CHARS: usize = 1_000_000;
 
 impl<'doc> PdfPage<'doc> {
@@ -154,6 +162,7 @@ fn extract(
     let mut chars = Vec::with_capacity((count as usize).min(65_536));
     for i in 0..count {
         let code = unsafe { b.FPDFText_GetUnicode(text_page, i) };
+        let generated = generated_from_raw(unsafe { b.FPDFText_IsGenerated(text_page, i) });
 
         let (mut left, mut right, mut bottom, mut top) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
         // Note PDFium's parameter order here: left, right, bottom, top.
@@ -192,6 +201,7 @@ fn extract(
         chars.push(PageChar {
             unicode: char::from_u32(code),
             code,
+            generated,
             bounds,
             loose_bounds,
             origin,
@@ -199,4 +209,37 @@ fn extract(
     }
 
     Ok(PageText { text, chars })
+}
+
+/// Maps `FPDFText_IsGenerated`'s tri-state return: 1 generated, 0 not
+/// generated, -1 error.
+///
+/// Upstream returns -1 only for a null text page or an out-of-range index
+/// (`index < textpage->size()`, and `size()` is what `FPDFText_CountChars`
+/// reports), neither of which extraction can produce — so `None` should
+/// not occur against a conforming PDFium build. It is kept rather than
+/// folded into `false` because, unlike the degenerate rectangles the other
+/// per-character fallbacks produce, a `false` here is indistinguishable
+/// from a real answer.
+fn generated_from_raw(raw: c_int) -> Option<bool> {
+    match raw {
+        1 => Some(true),
+        0 => Some(false),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_tri_state_is_preserved() {
+        assert_eq!(generated_from_raw(1), Some(true));
+        assert_eq!(generated_from_raw(0), Some(false));
+        // The documented error return, and anything else a non-conforming
+        // library might produce, must not read as "not generated".
+        assert_eq!(generated_from_raw(-1), None);
+        assert_eq!(generated_from_raw(2), None);
+    }
 }

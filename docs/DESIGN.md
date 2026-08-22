@@ -248,11 +248,12 @@ target). Default builds have `pdf_enable_v8 = false`,
   minor, not major, change (per Cargo guidance).
 - **PDFium binary**: the crate is compatible with any PDFium build that
   exports the bound symbols — in practice anything ≥ ~chromium/5845 (the
-  newest symbol we require, `FPDFText_GetLooseCharBox`-era, stabilized well
-  before that). Each crate release documents the *pinned/tested* PDFium
-  release; the load-time symbol check turns incompatibility into a specific
-  error. `Pdfium::version()` is not provided by PDFium's C API; consumers
-  should track the binary version via the artifact metadata we ship.
+  newest symbol we require, `FPDFText_IsGenerated`, landed upstream in the
+  ~chromium/5414 era, well before that). Each crate release documents the
+  *pinned/tested* PDFium release; the load-time symbol check turns
+  incompatibility into a specific error. `Pdfium::version()` is not
+  provided by PDFium's C API; consumers should track the binary version
+  via the artifact metadata we ship.
 - The compatibility table lives in `docs/VERSIONING.md` and is updated per
   release.
 
